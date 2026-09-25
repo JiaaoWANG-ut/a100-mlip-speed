@@ -24,11 +24,20 @@
   button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   .wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 8px; }
   a { color: var(--accent); }
+
+  #echart { overflow-x: auto; }
+  #echart svg { width: 100%; height: auto; display: block; }
+  .tip { min-height: 1.4em; }
 </style>
 </head>
 <body>
 <h1>391 原子液滴上的能量+力速度</h1>
 <p class="muted">GPU：NVIDIA A100-SXM4-40GB（NERSC Perlmutter，每个模型独占一张卡）。结构：La-3OH-128H2O 非周期液滴，391 原子，电荷 0，自旋多重度 1。计时：加载后连续 4 次能量+力；第 1 次是编译或预热，最后一步是第 4 次，中位数是后 3 次的中位数。150 ps 按 0.5 fs、300000 步、只用最后一步外推。测于 2026-09-25。88 个模型成功；uma-s-1 在 fairchem 2.23 上无法加载。</p>
+<h2>OMOL 单点能量</h2>
+<p class="muted">同一液滴的总能量。横轴单位是 eV，只覆盖 18 个 OMOL 结果（−273306.4 到 −273301.3）。最低是 DPA4C-Mini，−273305.999 eV。全体跨度 4.28 eV，约 0.011 eV/原子。悬停看精确值，以及相对 DPA4C-Mini 高了多少。材料势没有画进来。UMA 是 omol 任务头；MACE 含 omol、mh 的 omol 头和 POLAR。</p>
+<div class="pills" id="epills"></div>
+<div id="echart"></div>
+<p class="muted tip" id="etip">横轴：总能量 (eV)。线段从 DPA4C-Mini 拉到该模型。</p>
 <h2>测试环境</h2>
 <table>
 <thead><tr><th>家族</th><th>环境</th><th>软件</th><th>推理设置</th></tr></thead>
@@ -84,6 +93,86 @@ function draw() {
   </tr>`).join("");
 }
 draw();
+
+const OMOL = [
+  {family:"DPA", name:"DPA4C-Mini", energy:-273305.999},
+  {family:"DPA", name:"DPA4C-Neo", energy:-273305.026},
+  {family:"DPA", name:"DPA4C-Nano", energy:-273304.820},
+  {family:"DPA", name:"DPA4C-Air", energy:-273304.726},
+  {family:"Orb", name:"orb-v3-direct-omol", energy:-273303.904},
+  {family:"Orb", name:"orb-v3-conservative-omol", energy:-273303.845},
+  {family:"UMA", name:"uma-m-1.1", energy:-273303.735},
+  {family:"UMA", name:"uma-s-1.2", energy:-273303.648},
+  {family:"DPA", name:"DPA4C-Plus", energy:-273303.471},
+  {family:"UMA", name:"uma-s-1.1", energy:-273303.462},
+  {family:"UMA", name:"uma-s-1.2.1", energy:-273303.440},
+  {family:"MACE", name:"MACE-POLAR-1-L", energy:-273303.250},
+  {family:"MACE", name:"mace-mh-0", energy:-273303.188},
+  {family:"MACE", name:"mace-omol-0-extra-large-4M", energy:-273303.094},
+  {family:"MACE", name:"MACE-POLAR-1-M", energy:-273302.938},
+  {family:"MACE", name:"MACE-POLAR-1-S", energy:-273302.812},
+  {family:"MACE", name:"MACE-omol-0-extra-large-1024", energy:-273302.469},
+  {family:"MACE", name:"mace-mh-1", energy:-273301.719}
+];
+const EMIN = -273306.4, EMAX = -273301.3, EREF = -273305.999;
+const efams = ["全部","DPA","Orb","UMA","MACE"];
+let ecurrent = "全部", ehover = null;
+function ex(e){ return 250 + (e-EMIN)/(EMAX-EMIN)*658; }
+function drawEnergy(){
+  const pills = document.getElementById("epills");
+  pills.innerHTML = "";
+  for (const name of efams){
+    const n = name==="全部" ? OMOL.length : OMOL.filter(r=>r.family===name).length;
+    const b = document.createElement("button");
+    b.textContent = name+" "+n;
+    b.className = name===ecurrent ? "on" : "";
+    b.onclick = () => { ecurrent = name; drawEnergy(); };
+    pills.appendChild(b);
+  }
+  const shown = OMOL.filter(r => ecurrent==="全部" || r.family===ecurrent);
+  const rowH = 28, axisH = 28, width = 920, height = shown.length*rowH+axisH;
+  const ticks = [-273306,-273305,-273304,-273303,-273302];
+  const fg = "currentColor";
+  let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="OMOL 模型总能量">`;
+  for (const t of ticks){
+    const x = ex(t);
+    svg += `<line x1="${x}" x2="${x}" y1="0" y2="${shown.length*rowH}" stroke="currentColor" opacity="0.25"/>`;
+    svg += `<text x="${x}" y="${shown.length*rowH+18}" text-anchor="middle" fill="${fg}" font-size="11">${t}</text>`;
+  }
+  shown.forEach((r,i) => {
+    const y = i*rowH + rowH/2;
+    const on = ehover===r.name;
+    svg += `<g data-name="${r.name}" style="cursor:pointer">`;
+    svg += `<rect x="0" y="${i*rowH}" width="${width}" height="${rowH}" fill="${on ? "currentColor" : "transparent"}" opacity="${on ? 0.08 : 0}"/>`;
+    svg += `<text x="0" y="${y+4}" fill="${fg}" font-size="12">${r.family} · ${r.name}</text>`;
+    svg += `<line x1="${ex(EREF)}" x2="${ex(r.energy)}" y1="${y}" y2="${y}" stroke="currentColor" opacity="0.45"/>`;
+    svg += `<circle cx="${ex(r.energy)}" cy="${y}" r="${on?6:4.5}" fill="currentColor"/>`;
+    svg += `</g>`;
+  });
+  svg += `</svg>`;
+  const box = document.getElementById("echart");
+  box.innerHTML = svg;
+  function paint(name) {
+    box.querySelectorAll("g[data-name]").forEach(other => {
+      const on = other.getAttribute("data-name") === name;
+      other.querySelector("circle").setAttribute("r", on ? "6" : "4.5");
+      other.querySelector("rect").setAttribute("opacity", on ? "0.08" : "0");
+    });
+  }
+  box.querySelectorAll("g[data-name]").forEach(g => {
+    g.onmouseenter = () => {
+      const name = g.getAttribute("data-name");
+      const row = OMOL.find(r => r.name === name);
+      document.getElementById("etip").textContent = `${row.family} · ${row.name}：${row.energy.toFixed(3)} eV，比 DPA4C-Mini 高 ${(row.energy - EREF).toFixed(3)} eV`;
+      paint(name);
+    };
+  });
+  box.onmouseleave = () => {
+    document.getElementById("etip").textContent = "横轴：总能量 (eV)。线段从 DPA4C-Mini 拉到该模型。";
+    paint(null);
+  };
+}
+drawEnergy();
 </script>
 </body>
 </html>
